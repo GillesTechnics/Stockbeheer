@@ -9,26 +9,29 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "15.1.6",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
     "@supabase/supabase-js": "^2.48.0",
-    "lucide-react": "^0.474.0",
-    "qrcode": "^1.5.4",
-    "jsqr": "^1.4.0",
-    "xlsx": "^0.18.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "tailwind-merge": "^2.6.0"
+    "jsqr": "^1.4.0",
+    "lucide-react": "^0.474.0",
+    "next": "15.1.6",
+    "qrcode": "^1.5.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-server-dom-parcel": "^19.2.8",
+    "react-server-dom-turbopack": "^19.2.8",
+    "react-server-dom-webpack": "^19.2.8",
+    "tailwind-merge": "^2.6.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "typescript": "^5.7.3",
+    "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^22.10.0",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@types/qrcode": "^1.5.5",
+    "postcss": "^8.5.1",
     "tailwindcss": "^4.0.0",
-    "@tailwindcss/postcss": "^4.0.0",
-    "postcss": "^8.5.1"
+    "typescript": "^5.7.3"
   }
 }
