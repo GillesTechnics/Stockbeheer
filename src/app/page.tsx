@@ -15,6 +15,7 @@ import { ItemForm, type ItemFormValues } from "@/components/ItemForm";
 import { ScanTab } from "@/components/ScanTab";
 import { LabelsTab } from "@/components/LabelsTab";
 import { LogTab } from "@/components/LogTab";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type Tab = "voorraad" | "scannen" | "toevoegen" | "labels" | "log";
 
@@ -205,6 +206,7 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2.5">
+            <ThemeToggle />
             <button
               onClick={requestNotif}
               title="Systeemmeldingen"
