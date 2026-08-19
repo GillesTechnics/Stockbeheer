@@ -49,12 +49,6 @@ export function ScanTab({
       controlsRef.current.stop();
       controlsRef.current = null;
     }
-    // stop ook eventuele losse tracks op het video-element
-    const v = videoRef.current;
-    if (v && v.srcObject) {
-      (v.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
-      v.srcObject = null;
-    }
     setScanning(false);
   }, []);
 
@@ -78,43 +72,29 @@ export function ScanTab({
       }
       const reader = readerRef.current;
 
-      // Forceer expliciet de achtercamera via facingMode.
-      // We openen zelf de stream (achtercamera afgedwongen) en geven die aan zxing.
-      let stream: MediaStream;
+      // Kies bij voorkeur de achtercamera
+      let deviceId: string | undefined;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { exact: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
-        });
+        const devices = await BrowserQRCodeReader.listVideoInputDevices();
+        const back = devices.find((d) =>
+          /back|rear|environment|achter/i.test(d.label)
+        );
+        deviceId = (back ?? devices[devices.length - 1])?.deviceId;
       } catch {
-        // Sommige toestellen ondersteunen 'exact' niet -> zachtere voorkeur
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
-        });
+        deviceId = undefined;
       }
 
-      const video = videoRef.current!;
-      video.srcObject = stream;
-      video.setAttribute("playsinline", "true");
-      video.muted = true;
-      await video.play();
-
-      // Laat zxing scannen op de reeds lopende videostream
-      const controls = await reader.decodeFromVideoElement(video, (result) => {
-        if (result) {
-          handleCode(result.getText().trim());
-          stopCamera();
+      const controls = await reader.decodeFromVideoDevice(
+        deviceId,
+        videoRef.current!,
+        (result, err) => {
+          if (result) {
+            handleCode(result.getText().trim());
+            stopCamera();
+          }
+          // err bij elke frame zonder code -> negeren
         }
-      });
+      );
       controlsRef.current = controls;
     } catch (e: unknown) {
       const err = e as { name?: string; message?: string };
@@ -122,8 +102,8 @@ export function ScanTab({
         setCamError(
           "Cameratoegang geweigerd. Tik op het slot-icoon in de adresbalk en zet Camera op 'Toestaan'."
         );
-      } else if (err.name === "NotFoundError" || err.name === "OverconstrainedError") {
-        setCamError("Geen achtercamera gevonden op dit toestel.");
+      } else if (err.name === "NotFoundError") {
+        setCamError("Geen camera gevonden op dit toestel.");
       } else if (err.name === "NotReadableError") {
         setCamError("De camera is in gebruik door een andere app. Sluit die en probeer opnieuw.");
       } else {
@@ -136,10 +116,6 @@ export function ScanTab({
   useEffect(() => {
     return () => {
       if (controlsRef.current) controlsRef.current.stop();
-      const v = videoRef.current;
-      if (v && v.srcObject) {
-        (v.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
-      }
     };
   }, []);
 
@@ -227,6 +203,17 @@ function ScanResult({
   const low = Number(item.min_voorraad) > 0 && Number(item.hoeveelheid) < Number(item.min_voorraad);
   return (
     <div className="rounded-[var(--radius)] border border-accent bg-panel p-4">
+      {item.afbeelding_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={item.afbeelding_url}
+          alt={item.naam}
+          className="mb-3 max-h-40 w-full rounded-lg border border-border object-contain"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = "none";
+          }}
+        />
+      ) : null}
       <div className="font-mono text-[10.5px] text-accent">{item.code}</div>
       <div className="text-[15px] font-semibold">{item.naam}</div>
       <div className="mb-3 text-xs text-muted">

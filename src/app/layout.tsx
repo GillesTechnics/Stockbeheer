@@ -7,6 +7,8 @@ export const metadata: Metadata = {
   description: "Magazijn- en voorraadbeheer voor Gilles Technics",
 };
 
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: {

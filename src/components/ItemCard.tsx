@@ -27,7 +27,19 @@ export function ItemCard({
   return (
     <div className="mb-2.5 rounded-[var(--radius)] border border-border bg-panel p-3.5">
       <div className="flex items-start justify-between gap-2">
-        <div>
+        <div className="flex items-start gap-3">
+          {item.afbeelding_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={item.afbeelding_url}
+              alt={item.naam}
+              className="h-14 w-14 shrink-0 rounded-lg border border-border object-cover"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
+            />
+          ) : null}
+          <div>
           <div className="font-mono text-[10.5px] tracking-wide text-accent">{item.code}</div>
           <div className="mt-0.5 text-[15px] font-semibold">{item.naam}</div>
           <div className="mt-0.5 text-xs text-muted">{item.locatie || "geen locatie"}</div>
@@ -48,6 +60,7 @@ export function ItemCard({
               )}
             </div>
           )}
+          </div>
         </div>
         <Badge>
           {item.categorie}

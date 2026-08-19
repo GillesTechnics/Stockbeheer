@@ -160,6 +160,7 @@ export default function Home() {
       Locatie: i.locatie,
       Merk: i.merk || "",
       "Artikelnr. fabrikant": i.artikelnr || "",
+      "Afbeelding-URL": i.afbeelding_url || "",
     }));
     const logRows = stock.log.map((l) => ({
       Datum: new Date(l.created_at).toLocaleString("nl-BE"),

@@ -20,6 +20,7 @@ const empty: ItemFormValues = {
   eenheid: "stuks",
   min_voorraad: 0,
   locatie: "",
+  afbeelding_url: "",
 };
 
 export function ItemForm({
@@ -131,6 +132,26 @@ export function ItemForm({
         onChange={(e) => set({ artikelnr: e.target.value })}
         placeholder="bv. 100213 (voor snel bestellen)"
       />
+
+      <Label>Afbeelding-URL</Label>
+      <Input
+        value={form.afbeelding_url}
+        onChange={(e) => set({ afbeelding_url: e.target.value })}
+        placeholder="https://... (link naar productfoto)"
+      />
+      {form.afbeelding_url ? (
+        <div className="mt-2 flex justify-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={form.afbeelding_url}
+            alt="Voorbeeld"
+            className="max-h-28 rounded-lg border border-border object-contain"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = "none";
+            }}
+          />
+        </div>
+      ) : null}
 
       <Label>Code</Label>
       <Input
