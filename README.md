@@ -47,3 +47,4 @@ voorraad zien en bewerken (dit is een intern tool zonder login).
 
 Wil je een login of wachtwoord toevoegen zodat niet iedereen met de link erin kan?
 Dat kan met Supabase Auth — vraag het en het wordt erbij gebouwd.
+test
