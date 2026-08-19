@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import jsQR from "jsqr";
+import { BrowserQRCodeReader } from "@zxing/browser";
+import type { IScannerControls } from "@zxing/browser";
 import { ScanLine, Minus, Plus, Copy, CameraOff } from "lucide-react";
 import { type Item } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -19,9 +20,8 @@ export function ScanTab({
 }) {
   const { show } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number | null>(null);
+  const controlsRef = useRef<IScannerControls | null>(null);
+  const readerRef = useRef<BrowserQRCodeReader | null>(null);
 
   const [scanning, setScanning] = useState(false);
   const [camError, setCamError] = useState<string | null>(null);
@@ -45,88 +45,103 @@ export function ScanTab({
   );
 
   const stopCamera = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
+    if (controlsRef.current) {
+      controlsRef.current.stop();
+      controlsRef.current = null;
+    }
+    // stop ook eventuele losse tracks op het video-element
+    const v = videoRef.current;
+    if (v && v.srcObject) {
+      (v.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
+      v.srcObject = null;
     }
     setScanning(false);
   }, []);
 
-  const tick = useCallback(() => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas || video.readyState !== video.HAVE_ENOUGH_DATA) {
-      rafRef.current = requestAnimationFrame(tick);
-      return;
-    }
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const result = jsQR(imageData.data, imageData.width, imageData.height, {
-      inversionAttempts: "dontInvert",
-    });
-    if (result?.data) {
-      handleCode(result.data.trim());
-      stopCamera();
-      return;
-    }
-    rafRef.current = requestAnimationFrame(tick);
-  }, [handleCode, stopCamera]);
-
-    const startCamera = useCallback(async () => {
+  const startCamera = useCallback(async () => {
     setCamError(null);
     setFound(null);
     setNotFoundCode(null);
+
     if (!navigator.mediaDevices?.getUserMedia) {
       setCamError("Camera niet ondersteund in deze browser.");
       return;
     }
 
-    const tryStart = async (constraints: MediaStreamConstraints) => {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      setScanning(true);
+    setScanning(true);
+
+    try {
+      if (!readerRef.current) {
+        readerRef.current = new BrowserQRCodeReader(undefined, {
+          delayBetweenScanAttempts: 100,
+        });
+      }
+      const reader = readerRef.current;
+
+      // Forceer expliciet de achtercamera via facingMode.
+      // We openen zelf de stream (achtercamera afgedwongen) en geven die aan zxing.
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { exact: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch {
+        // Sommige toestellen ondersteunen 'exact' niet -> zachtere voorkeur
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      }
+
       const video = videoRef.current!;
       video.srcObject = stream;
       video.setAttribute("playsinline", "true");
       video.muted = true;
       await video.play();
-      rafRef.current = requestAnimationFrame(tick);
-    };
 
-    try {
-      // 1e poging: achtercamera als voorkeur (niet verplicht)
-      await tryStart({ video: { facingMode: "environment" }, audio: false });
-    } catch {
-      try {
-        // 2e poging: om het even welke camera
-        await tryStart({ video: true, audio: false });
-      } catch (e2: unknown) {
-        const err = e2 as { name?: string; message?: string };
-        if (err.name === "NotAllowedError") {
-          setCamError(
-            "Cameratoegang geweigerd. Tik op het slot-icoon in de adresbalk en zet Camera op 'Toestaan'."
-          );
-        } else if (err.name === "NotFoundError") {
-          setCamError("Geen camera gevonden op dit toestel.");
-        } else if (err.name === "NotReadableError") {
-          setCamError(
-            "De camera is in gebruik door een andere app. Sluit andere apps die de camera gebruiken en probeer opnieuw."
-          );
-        } else {
-          setCamError("Kon de camera niet starten (" + (err.name || err.message || "onbekend") + ").");
+      // Laat zxing scannen op de reeds lopende videostream
+      const controls = await reader.decodeFromVideoElement(video, (result) => {
+        if (result) {
+          handleCode(result.getText().trim());
+          stopCamera();
         }
-        setScanning(false);
+      });
+      controlsRef.current = controls;
+    } catch (e: unknown) {
+      const err = e as { name?: string; message?: string };
+      if (err.name === "NotAllowedError") {
+        setCamError(
+          "Cameratoegang geweigerd. Tik op het slot-icoon in de adresbalk en zet Camera op 'Toestaan'."
+        );
+      } else if (err.name === "NotFoundError" || err.name === "OverconstrainedError") {
+        setCamError("Geen achtercamera gevonden op dit toestel.");
+      } else if (err.name === "NotReadableError") {
+        setCamError("De camera is in gebruik door een andere app. Sluit die en probeer opnieuw.");
+      } else {
+        setCamError("Kon de camera niet starten (" + (err.name || err.message || "onbekend") + ").");
       }
+      setScanning(false);
     }
-  }, [tick]);
+  }, [handleCode, stopCamera]);
 
-  useEffect(() => stopCamera, [stopCamera]);
+  useEffect(() => {
+    return () => {
+      if (controlsRef.current) controlsRef.current.stop();
+      const v = videoRef.current;
+      if (v && v.srcObject) {
+        (v.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, []);
 
   const liveFound = found ? items.find((i) => i.id === found.id) || found : null;
 
@@ -149,7 +164,12 @@ export function ScanTab({
       ) : (
         <div className="mb-4 overflow-hidden rounded-xl border border-accent">
           <div className="relative bg-black">
-            <video ref={videoRef} className="w-full max-h-[60vh] object-cover" />
+            <video
+              ref={videoRef}
+              className="w-full max-h-[60vh] object-cover"
+              playsInline
+              muted
+            />
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div className="h-48 w-48 rounded-lg border-2 border-accent/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
             </div>
@@ -162,8 +182,6 @@ export function ScanTab({
           </div>
         </div>
       )}
-
-      <canvas ref={canvasRef} className="hidden" />
 
       <div className="my-4 flex items-center gap-2.5 font-mono text-[11px] text-muted">
         <span className="h-px flex-1 bg-border" /> OF ZOEK MANUEEL{" "}
