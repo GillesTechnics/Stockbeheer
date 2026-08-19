@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import jsQR from "jsqr";
-import { ScanLine, Minus, Plus, Copy } from "lucide-react";
+import { ScanLine, Minus, Plus, Copy, CameraOff } from "lucide-react";
 import { type Item } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,69 +18,137 @@ export function ScanTab({
   onCreateWithCode: (code: string) => void;
 }) {
   const { show } = useToast();
-  const fileRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  const [scanning, setScanning] = useState(false);
+  const [camError, setCamError] = useState<string | null>(null);
   const [found, setFound] = useState<Item | null>(null);
   const [notFoundCode, setNotFoundCode] = useState<string | null>(null);
   const [manual, setManual] = useState("");
 
-  const handleCode = (code: string) => {
-    const item = items.find((i) => i.code.toLowerCase() === code.toLowerCase());
-    if (item) {
-      setFound(item);
-      setNotFoundCode(null);
-    } else {
-      setFound(null);
-      setNotFoundCode(code);
-    }
-  };
-
-  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d")!;
-      const maxDim = 1000;
-      let w = img.width,
-        h = img.height;
-      if (w > maxDim) {
-        h = h * (maxDim / w);
-        w = maxDim;
+  const handleCode = useCallback(
+    (code: string) => {
+      const item = items.find((i) => i.code.toLowerCase() === code.toLowerCase());
+      if (item) {
+        setFound(item);
+        setNotFoundCode(null);
+        show("Code gevonden: " + item.code);
+      } else {
+        setFound(null);
+        setNotFoundCode(code);
       }
-      canvas.width = w;
-      canvas.height = h;
-      ctx.drawImage(img, 0, 0, w, h);
-      const data = ctx.getImageData(0, 0, w, h);
-      const result = jsQR(data.data, data.width, data.height);
-      if (result?.data) handleCode(result.data.trim());
-      else show("Geen QR-code herkend. Probeer opnieuw of zoek manueel.");
-    };
-    img.src = URL.createObjectURL(file);
-    e.target.value = "";
-  };
+    },
+    [items, show]
+  );
 
-  // keep found item in sync with latest data
+  const stopCamera = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setScanning(false);
+  }, []);
+
+  const tick = useCallback(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || video.readyState !== video.HAVE_ENOUGH_DATA) {
+      rafRef.current = requestAnimationFrame(tick);
+      return;
+    }
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const result = jsQR(imageData.data, imageData.width, imageData.height, {
+      inversionAttempts: "dontInvert",
+    });
+    if (result?.data) {
+      handleCode(result.data.trim());
+      stopCamera();
+      return;
+    }
+    rafRef.current = requestAnimationFrame(tick);
+  }, [handleCode, stopCamera]);
+
+  const startCamera = useCallback(async () => {
+    setCamError(null);
+    setFound(null);
+    setNotFoundCode(null);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCamError("Camera niet ondersteund in deze browser.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setScanning(true);
+      const video = videoRef.current!;
+      video.srcObject = stream;
+      video.setAttribute("playsinline", "true");
+      await video.play();
+      rafRef.current = requestAnimationFrame(tick);
+    } catch (e: unknown) {
+      const err = e as { name?: string };
+      if (err.name === "NotAllowedError") {
+        setCamError("Cameratoegang geweigerd. Sta de camera toe in je browserinstellingen.");
+      } else if (err.name === "NotFoundError") {
+        setCamError("Geen camera gevonden op dit toestel.");
+      } else {
+        setCamError("Kon de camera niet starten. Probeer opnieuw of gebruik manueel zoeken.");
+      }
+      setScanning(false);
+    }
+  }, [tick]);
+
+  useEffect(() => stopCamera, [stopCamera]);
+
   const liveFound = found ? items.find((i) => i.id === found.id) || found : null;
 
   return (
     <div>
-      <div className="mb-4 rounded-xl border border-dashed border-border p-8 text-center">
-        <ScanLine className="mx-auto mb-2.5 text-accent" size={34} />
-        <div className="font-semibold">Scan een QR-label</div>
-        <p className="my-2.5 text-[13px] text-muted">
-          Maak een foto van het label op het rek of de doos
-        </p>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={onFile}
-        />
-        <Button onClick={() => fileRef.current?.click()}>Foto nemen / kiezen</Button>
-      </div>
+      {!scanning ? (
+        <div className="mb-4 rounded-xl border border-dashed border-border p-8 text-center">
+          <ScanLine className="mx-auto mb-2.5 text-accent" size={34} />
+          <div className="font-semibold">Scan een QR-label</div>
+          <p className="my-2.5 text-[13px] text-muted">
+            Richt je camera op het label — de code wordt vanzelf herkend
+          </p>
+          <Button onClick={startCamera}>Camera starten</Button>
+          {camError && (
+            <div className="mt-3 flex items-center justify-center gap-2 text-[12.5px] text-warn">
+              <CameraOff size={14} /> {camError}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="mb-4 overflow-hidden rounded-xl border border-accent">
+          <div className="relative bg-black">
+            <video ref={videoRef} className="w-full max-h-[60vh] object-cover" />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="h-48 w-48 rounded-lg border-2 border-accent/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+            </div>
+          </div>
+          <div className="flex items-center justify-between bg-panel p-3">
+            <span className="animate-pulse font-mono text-[12px] text-accent">● Scannen…</span>
+            <Button variant="outline" size="sm" onClick={stopCamera}>
+              Stoppen
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <canvas ref={canvasRef} className="hidden" />
 
       <div className="my-4 flex items-center gap-2.5 font-mono text-[11px] text-muted">
         <span className="h-px flex-1 bg-border" /> OF ZOEK MANUEEL{" "}
