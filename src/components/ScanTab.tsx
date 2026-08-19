@@ -78,7 +78,7 @@ export function ScanTab({
     rafRef.current = requestAnimationFrame(tick);
   }, [handleCode, stopCamera]);
 
-  const startCamera = useCallback(async () => {
+    const startCamera = useCallback(async () => {
     setCamError(null);
     setFound(null);
     setNotFoundCode(null);
@@ -86,28 +86,43 @@ export function ScanTab({
       setCamError("Camera niet ondersteund in deze browser.");
       return;
     }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-        audio: false,
-      });
+
+    const tryStart = async (constraints: MediaStreamConstraints) => {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       setScanning(true);
       const video = videoRef.current!;
       video.srcObject = stream;
       video.setAttribute("playsinline", "true");
+      video.muted = true;
       await video.play();
       rafRef.current = requestAnimationFrame(tick);
-    } catch (e: unknown) {
-      const err = e as { name?: string };
-      if (err.name === "NotAllowedError") {
-        setCamError("Cameratoegang geweigerd. Sta de camera toe in je browserinstellingen.");
-      } else if (err.name === "NotFoundError") {
-        setCamError("Geen camera gevonden op dit toestel.");
-      } else {
-        setCamError("Kon de camera niet starten. Probeer opnieuw of gebruik manueel zoeken.");
+    };
+
+    try {
+      // 1e poging: achtercamera als voorkeur (niet verplicht)
+      await tryStart({ video: { facingMode: "environment" }, audio: false });
+    } catch {
+      try {
+        // 2e poging: om het even welke camera
+        await tryStart({ video: true, audio: false });
+      } catch (e2: unknown) {
+        const err = e2 as { name?: string; message?: string };
+        if (err.name === "NotAllowedError") {
+          setCamError(
+            "Cameratoegang geweigerd. Tik op het slot-icoon in de adresbalk en zet Camera op 'Toestaan'."
+          );
+        } else if (err.name === "NotFoundError") {
+          setCamError("Geen camera gevonden op dit toestel.");
+        } else if (err.name === "NotReadableError") {
+          setCamError(
+            "De camera is in gebruik door een andere app. Sluit andere apps die de camera gebruiken en probeer opnieuw."
+          );
+        } else {
+          setCamError("Kon de camera niet starten (" + (err.name || err.message || "onbekend") + ").");
+        }
+        setScanning(false);
       }
-      setScanning(false);
     }
   }, [tick]);
 
